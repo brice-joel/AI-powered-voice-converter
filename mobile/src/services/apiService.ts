@@ -1,8 +1,8 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { VoicePreset, VoicePresetId } from '../types';
 
-// Récupération de l'URL depuis le fichier .env (préfixé par EXPO_PUBLIC_)
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.127:8000/api/v1';
+// Adresse IP active de votre machine (évite les soucis de cache Metro avec .env)
+const API_BASE_URL = 'http://192.168.1.127:8000/api/v1';
 
 export const apiService = {
   /**
@@ -32,41 +32,48 @@ export const apiService = {
   async convertVoice(audioUri: string, preset: VoicePresetId): Promise<string> {
     const uploadUrl = `${API_BASE_URL}/convert`;
     
-    // Téléversement multipart vers FastAPI avec demande du format base64
-    const response = await FileSystem.uploadAsync(uploadUrl, audioUri, {
-      httpMethod: 'POST',
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-      fieldName: 'audio',
-      parameters: { 
-        preset,
-        response_format: 'base64'
-      },
+    // Téléversement via FormData standard (rapide, sans timeout de streaming)
+    const formData = new FormData();
+    formData.append('audio', {
+      uri: audioUri,
+      type: 'audio/m4a',
+      name: 'recording.m4a',
+    } as any);
+    formData.append('preset', preset);
+    formData.append('response_format', 'base64');
+
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      body: formData,
     });
 
-    if (response.status !== 200) {
-      let errorDetail = response.body;
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorDetail = errorText;
       try {
-        const errorJson = JSON.parse(response.body);
-        errorDetail = errorJson.detail || response.body;
+        const errorJson = JSON.parse(errorText);
+        errorDetail = errorJson.detail || errorText;
       } catch {
-        // keep text
+        // texte brut
       }
       throw new Error(`Erreur serveur (${response.status}) : ${errorDetail}`);
     }
 
     // Décodage du JSON renvoyé par le backend
-    const jsonResult = JSON.parse(response.body);
+    const jsonResult = await response.json();
     if (!jsonResult.audio_base64) {
       throw new Error("Réponse serveur invalide : audio_base64 manquant.");
     }
 
     // Sauvegarde atomique du fichier binaire .ogg dans le cache de l'application
-    const targetPath = `${FileSystem.cacheDirectory}voice_${Date.now()}_${preset}.ogg`;
+    const baseDir = FileSystem.cacheDirectory || `${FileSystem.documentDirectory ?? ''}`;
+    const targetPath = `${baseDir}voice_${Date.now()}_${preset}.ogg`;
+    const encoding = FileSystem.EncodingType?.Base64 ?? ('base64' as any);
+
     await FileSystem.writeAsStringAsync(targetPath, jsonResult.audio_base64, {
-      encoding: FileSystem.EncodingType.Base64,
+      encoding,
     });
 
     return targetPath;
   }
 };
-
