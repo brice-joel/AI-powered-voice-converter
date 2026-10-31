@@ -1,0 +1,52 @@
+# Environnements virtuels Python
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimisations Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Fichiers de configuration & variables d'environnement (secrets)
+.env
+.env.*
+!.env.example
+
+# Fichiers audio générés ou temporaires de tests
+*.ogg
+*.opus
+*.wav
+*.m4a
+*.mp3
+output_*.ogg
+test_sample.wav
+temp_audio/
+
+# Tests & couverture
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Logs & monitoring
+*.log
+logs/
+
+# IDEs & éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Fichiers OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
