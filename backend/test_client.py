@@ -1,8 +1,30 @@
 import httpx
 import os
 import sys
+import wave
+import struct
+import math
 
 API_URL = "http://127.0.0.1:8000/api/v1"
+
+def create_synthetic_wav(filename: str = "test_sample.wav", duration_sec: float = 2.5) -> str:
+    """Génère un fichier vocal WAV 44.1kHz 16-bit mono sans dépendance externe."""
+    sample_rate = 44100
+    n_samples = int(sample_rate * duration_sec)
+    
+    with wave.open(filename, "w") as wav_out:
+        wav_out.setnchannels(1)      # Mono
+        wav_out.setsampwidth(2)     # 16 bits
+        wav_out.setframerate(sample_rate)
+        
+        # Synthétise un son sinusoïdal doux à 300Hz (proche de la voix humaine)
+        for i in range(n_samples):
+            # Modulation de fréquence pour simuler une intonation de parole
+            freq = 280.0 + 40.0 * math.sin(2.0 * math.pi * 1.5 * (i / sample_rate))
+            value = int(16000.0 * math.sin(2.0 * math.pi * freq * (i / sample_rate)))
+            wav_out.writeframesraw(struct.pack("<h", value))
+            
+    return filename
 
 def test_pipeline():
     print("=" * 60)
@@ -16,6 +38,8 @@ def test_pipeline():
         data = res.json()
         print(f"   [OK] Statut : {data.get('status')}")
         print(f"   [OK] FFmpeg détecté : {data.get('ffmpeg_available')}")
+        if not data.get('ffmpeg_available'):
+            print("   [ATTENTION] FFmpeg n'est pas encore détecté par le backend.")
     except Exception as e:
         print(f"   [ERREUR] Impossible de joindre le serveur à {API_URL}.")
         print("   Vérifiez que le serveur uvicorn est bien lancé.")
@@ -34,18 +58,12 @@ def test_pipeline():
         print(f"   [ERREUR] Échec de la récupération des presets : {e}")
         return
 
-    # 3. Création ou utilisation d'un fichier audio de test
+    # 3. Génération du fichier audio WAV de test en pur Python
     sample_file = "test_sample.wav"
     if not os.path.exists(sample_file):
-        print("\n3. Génération d'un fichier audio de test WAV...")
-        # Génère 3 secondes de bip sinusoïdal à 440Hz
-        ret = os.system('ffmpeg -y -f lavfi -i "sine=frequency=440:duration=3" test_sample.wav')
-        if ret != 0 or not os.path.exists(sample_file):
-            print("   [INFO] FFmpeg CLI non trouvé pour générer le son de test.")
-            print("   Création d'un fichier binaire WAV d'exemple...")
-            # En-tête WAV 44 bytes minimal pour le test
-            with open(sample_file, "wb") as f:
-                f.write(b'RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00')
+        print(f"\n3. Génération d'un fichier audio vocal de test ({sample_file})...")
+        create_synthetic_wav(sample_file, duration_sec=3.0)
+        print(f"   [OK] Fichier vocal synthétique créé ({os.path.getsize(sample_file)} octets)")
     else:
         print(f"\n3. Utilisation de l'échantillon audio existant : {sample_file}")
 

@@ -1,70 +1,71 @@
 import * as FileSystem from 'expo-file-system';
 import { VoicePreset, VoicePresetId } from '../types';
 
-// Modifiez avec l'IP locale de votre machine de dev (ex: http://192.168.1.50:8000/api/v1)
-const API_BASE_URL = 'http://10.0.2.2:8000/api/v1'; // 10.0.2.2 pour l'émulateur Android
+// Adresse IP locale de votre machine détectée automatiquement (Wi-Fi)
+const API_BASE_URL = 'http://192.168.1.206:8000/api/v1';
 
 export const apiService = {
   /**
-   * Récupère la liste des avatars vocaux disponibles
+   * Récupère la liste des avatars vocaux disponibles sur le backend
    */
   async fetchPresets(): Promise<VoicePreset[]> {
     try {
       const response = await fetch(`${API_BASE_URL}/presets/`);
-      if (!response.ok) throw new Error('Impossible de charger les presets');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       return data.presets;
     } catch (error) {
-      console.warn('Fallback presets locaux suite à une erreur réseau:', error);
+      console.warn('Fallback presets locaux suite à une indisponibilité temporaire du réseau :', error);
       return [
-        { id: 'girl', name: 'Fille / Aiguë', description: 'Voix plus haute et claire' },
-        { id: 'grandfather', name: 'Grand-père / Âgé', description: 'Voix mature avec tremolo' },
-        { id: 'deep_man', name: 'Homme Grave', description: 'Voix basse et puissante' },
+        { id: 'girl', name: 'Fille / Aiguë', description: 'Voix plus haute et claire avec équilibrage formantique' },
+        { id: 'grandfather', name: 'Grand-père / Âgé', description: 'Voix plus grave avec léger chevrotement' },
+        { id: 'deep_man', name: 'Homme Grave', description: 'Voix basse, profonde et chaleureuse' },
         { id: 'robot', name: 'Robot', description: 'Effet robotique métallique' },
-        { id: 'chipmunk', name: 'Chipmunk', description: 'Voix drôle très aiguë' },
+        { id: 'chipmunk', name: 'Chipmunk', description: 'Voix comique très aiguë' },
       ];
     }
   },
 
   /**
-   * Envoie le fichier audio au backend pour conversion et télécharge le résultat .ogg
+   * Envoie le fichier audio au backend pour conversion et écrit le résultat .ogg en local
    */
   async convertVoice(audioUri: string, preset: VoicePresetId): Promise<string> {
     const uploadUrl = `${API_BASE_URL}/convert`;
     
-    // Téléversement multipart via Expo FileSystem
+    // Téléversement multipart vers FastAPI en demandant le format base64
     const response = await FileSystem.uploadAsync(uploadUrl, audioUri, {
       httpMethod: 'POST',
       uploadType: FileSystem.FileSystemUploadType.MULTIPART,
       fieldName: 'audio',
-      parameters: { preset },
+      parameters: { 
+        preset,
+        response_format: 'base64'
+      },
     });
 
     if (response.status !== 200) {
-      throw new Error(`Erreur serveur (${response.status}) : ${response.body}`);
+      let errorDetail = response.body;
+      try {
+        const errorJson = JSON.parse(response.body);
+        errorDetail = errorJson.detail || response.body;
+      } catch {
+        // keep text
+      }
+      throw new Error(`Erreur serveur (${response.status}) : ${errorDetail}`);
     }
 
-    // Le corps contient le fichier binaire OGG Opus, on le sauvegarde en local
-    const targetPath = `${FileSystem.cacheDirectory}converted_${Date.now()}_${preset}.ogg`;
-    
-    // On télécharge directement le flux retourné dans un fichier OGG local
-    const downloadRes = await FileSystem.downloadAsync(
-      `${API_BASE_URL}/convert`,
-      targetPath,
-      {
-        headers: {
-          // Si besoin de headers additionnels
-        }
-      }
-    ).catch(async () => {
-      // Fallback si downloadAsync n'est pas utilisé : écriture en base64
-      await FileSystem.writeAsStringAsync(targetPath, response.body, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      return { uri: targetPath };
+    // Décodage du JSON renvoyé par le backend
+    const jsonResult = JSON.parse(response.body);
+    if (!jsonResult.audio_base64) {
+      throw new Error("Réponse serveur invalide : audio_base64 manquant.");
+    }
+
+    // Sauvegarde atomique du fichier binaire .ogg dans le cache de l'application
+    const targetPath = `${FileSystem.cacheDirectory}voice_${Date.now()}_${preset}.ogg`;
+    await FileSystem.writeAsStringAsync(targetPath, jsonResult.audio_base64, {
+      encoding: FileSystem.EncodingType.Base64,
     });
 
-    return downloadRes.uri;
+    return targetPath;
   }
 };
-

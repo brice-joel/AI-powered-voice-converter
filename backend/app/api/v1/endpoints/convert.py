@@ -1,9 +1,11 @@
 import os
 import shutil
 import tempfile
+import base64
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+from typing import Optional
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
+from fastapi.responses import FileResponse, JSONResponse
 from app.core.config import settings
 from app.services.dsp_service import DSPVoiceService
 
@@ -20,13 +22,16 @@ def cleanup_files(*file_paths: str) -> None:
 
 @router.post("/convert")
 async def convert_voice(
+    request: Request,
     background_tasks: BackgroundTasks,
     audio: UploadFile = File(..., description="Fichier audio enregistré (m4a, wav, mp3, ogg)"),
-    preset: str = Form(..., description="Identifiant de la voix cible (ex: girl, grandfather, deep_man, robot)")
+    preset: str = Form(..., description="Identifiant de la voix cible (ex: girl, grandfather, deep_man, robot)"),
+    response_format: Optional[str] = Form("binary", description="Format de réponse : 'binary' (défaut) ou 'base64'")
 ):
     """
     Convertit un enregistrement vocal dans une autre voix en utilisant le moteur DSP
     et renvoie le résultat au format OGG Opus pour WhatsApp/Telegram.
+    Supporte le format binaire direct ou base64 pour intégration mobile React Native.
     """
     # 1. Validation de l'extension
     file_ext = Path(audio.filename or "audio.m4a").suffix.lower()
@@ -66,6 +71,17 @@ async def convert_voice(
     # 5. Nettoyage garanti en tâche de fond après l'envoi de la réponse
     background_tasks.add_task(cleanup_files, input_path, output_path)
 
+    # 6. Réponse selon le format demandé (base64 pour mobile Expo ou binaire pour cURL/test)
+    if response_format == "base64" or "application/json" in request.headers.get("accept", ""):
+        with open(output_path, "rb") as f:
+            b64_content = base64.b64encode(f.read()).decode("utf-8")
+        return {
+            "status": "success",
+            "preset": preset,
+            "filename": f"voice_{preset}.ogg",
+            "audio_base64": b64_content
+        }
+
     return FileResponse(
         path=output_path,
         media_type="audio/ogg",
@@ -75,4 +91,3 @@ async def convert_voice(
             "X-Voice-Preset": preset
         }
     )
-
