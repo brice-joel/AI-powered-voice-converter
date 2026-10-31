@@ -33,13 +33,31 @@ export const apiService = {
   async convertVoice(audioUri: string, preset: VoicePresetId): Promise<string> {
     const uploadUrl = `${API_BASE_URL}/convert-base64`;
     
-    // 1. Lecture du fichier audio enregistré en base64
+    // 1. Déduction du nom et extension du fichier
+    const filename = audioUri.split('/').pop() || 'recording.m4a';
+
+    // 2. Vérification de l'intégrité du fichier enregistré sur le smartphone
+    const fileInfo = await FileSystem.getInfoAsync(audioUri);
+    const fileSize = fileInfo.exists ? (fileInfo as any).size ?? -1 : 0;
+    console.log(`[VoiceMorph] Fichier source: ${audioUri} (${fileSize} octets)`);
+
+    if (!fileInfo.exists || fileSize === 0) {
+      throw new Error("L'enregistrement microphone est vide (0 octet). Parlez bien dans le micro pendant au moins 2 secondes.");
+    }
+
+    // 3. Lecture du fichier audio enregistré en base64
     const encoding = FileSystem.EncodingType?.Base64 ?? ('base64' as any);
     const audioBase64 = await FileSystem.readAsStringAsync(audioUri, {
       encoding,
     });
 
-    // 2. Envoi en JSON standard (contourne tout bug FormData / New Architecture)
+    if (!audioBase64 || audioBase64.length === 0) {
+      throw new Error("Impossible de lire les données audio du smartphone.");
+    }
+
+    console.log(`[VoiceMorph] Envoi vocal (${audioBase64.length} chars, fichier: ${filename}) vers ${uploadUrl}`);
+
+    // 4. Envoi en JSON standard
     const response = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
@@ -48,7 +66,7 @@ export const apiService = {
       body: JSON.stringify({
         audio_base64: audioBase64,
         preset,
-        filename: 'recording.m4a',
+        filename,
         response_format: 'base64',
       }),
     });
@@ -65,20 +83,25 @@ export const apiService = {
       throw new Error(`Erreur serveur (${response.status}) : ${errorDetail}`);
     }
 
-    // 3. Décodage du JSON renvoyé par le backend
+    // 5. Décodage du JSON renvoyé par le backend
     const jsonResult = await response.json();
-    if (!jsonResult.audio_base64) {
-      throw new Error("Réponse serveur invalide : audio_base64 manquant.");
+    const data = typeof jsonResult === 'string' ? JSON.parse(jsonResult) : jsonResult;
+    const base64Audio = data?.audio_base64 || data?.audioBase64 || data?.audio;
+
+    if (!base64Audio) {
+      const receivedKeys = data ? Object.keys(data).join(', ') : 'null';
+      throw new Error(`Réponse serveur sans audio_base64. Clés reçues: [${receivedKeys}].`);
     }
 
-    // 4. Sauvegarde atomique du fichier binaire .ogg dans le cache de l'application
+    // 6. Sauvegarde atomique du fichier binaire .ogg dans le cache de l'application
     const baseDir = FileSystem.cacheDirectory || `${FileSystem.documentDirectory ?? ''}`;
     const targetPath = `${baseDir}voice_${Date.now()}_${preset}.ogg`;
 
-    await FileSystem.writeAsStringAsync(targetPath, jsonResult.audio_base64, {
+    await FileSystem.writeAsStringAsync(targetPath, base64Audio, {
       encoding,
     });
 
+    console.log(`[VoiceMorph] Fichier converti écrit dans : ${targetPath}`);
     return targetPath;
   }
 };

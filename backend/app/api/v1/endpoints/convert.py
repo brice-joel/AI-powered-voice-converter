@@ -38,18 +38,23 @@ async def convert_voice_base64(
     """
     # 1. Validation de l'extension
     file_ext = Path(payload.filename or "recording.m4a").suffix.lower()
-    if file_ext not in settings.ALLOWED_AUDIO_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Format audio non supporté : {file_ext}. Formats acceptés : {settings.ALLOWED_AUDIO_EXTENSIONS}"
-        )
+    if not file_ext or file_ext not in settings.ALLOWED_AUDIO_EXTENSIONS:
+        # Fallback sur .m4a si pas d'extension valide
+        file_ext = ".m4a"
 
     # 2. Sauvegarde du base64 dans un fichier temporaire
     input_temp = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
     input_path = input_temp.name
     try:
         audio_bytes = base64.b64decode(payload.audio_base64)
+        print(f"[VoiceMorph] Base64 reçu: {len(payload.audio_base64)} chars, Audio décodé: {len(audio_bytes)} octets")
+        if len(audio_bytes) == 0:
+            raise HTTPException(status_code=400, detail="Le fichier audio envoyé est vide (0 octet).")
         input_temp.write(audio_bytes)
+    except HTTPException:
+        input_temp.close()
+        cleanup_files(input_path)
+        raise
     except Exception as e:
         input_temp.close()
         cleanup_files(input_path)
@@ -76,12 +81,21 @@ async def convert_voice_base64(
         cleanup_files(input_path)
         raise HTTPException(status_code=500, detail=f"Erreur lors de la conversion audio : {str(e)}")
 
-    # 5. Nettoyage garanti en tâche de fond après l'envoi de la réponse
-    background_tasks.add_task(cleanup_files, input_path, output_path)
+    # 5. Vérification du fichier de sortie
+    output_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+    print(f"[VoiceMorph] Fichier de sortie DSP: {output_path} ({output_size} octets)")
+    if output_size == 0:
+        cleanup_files(input_path, output_path)
+        raise HTTPException(status_code=500, detail="La conversion audio a produit un fichier vide (0 octet).")
 
-    # 6. Réponse Base64
+    # 6. Lecture du résultat en Base64
     with open(output_path, "rb") as f:
         b64_content = base64.b64encode(f.read()).decode("utf-8")
+
+    print(f"[VoiceMorph] Envoi réponse Base64: {len(b64_content)} caractères")
+
+    # 7. Nettoyage garanti en tâche de fond après l'envoi de la réponse
+    background_tasks.add_task(cleanup_files, input_path, output_path)
 
     return {
         "status": "success",

@@ -51,7 +51,8 @@ export const audioService = {
     }
 
     const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
-    await recorder.prepareToRecordAsync();
+    // Passer RecordingPresets.HIGH_QUALITY garantit le formatage des options spécifiques Android (AAC / MPEG4)
+    await recorder.prepareToRecordAsync(RecordingPresets.HIGH_QUALITY);
     recorder.record();
     this.recorderInstance = recorder;
   },
@@ -61,6 +62,8 @@ export const audioService = {
 
     try {
       await this.recorderInstance.stop();
+      // Temporisation de 200ms pour garantir la finalisation et le flush du conteneur audio sur disque
+      await new Promise((resolve) => setTimeout(resolve, 200));
       const uri = this.recorderInstance.uri;
       this.recorderInstance = null;
       return uri;

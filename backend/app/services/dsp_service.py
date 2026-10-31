@@ -77,6 +77,12 @@ class DSPVoiceService:
             output_path
         ]
 
-        FFmpegService.execute_ffmpeg(cmd)
-        return output_path
+        stderr_output = FFmpegService.execute_ffmpeg(cmd)
+        output_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+        if output_size == 0:
+            input_size = os.path.getsize(input_file_path) if os.path.exists(input_file_path) else 0
+            raise RuntimeError(
+                f"FFmpeg a produit un fichier vide (0 octet). Taille entrée: {input_size} octets. Stderr: {stderr_output[-400:]}"
+            )
 
+        return output_path

@@ -52,8 +52,8 @@ class FFmpegService:
             return False
 
     @classmethod
-    def execute_ffmpeg(cls, cmd: List[str]) -> None:
-        """Exécute une commande FFmpeg avec le binaire détecté."""
+    def execute_ffmpeg(cls, cmd: List[str]) -> str:
+        """Exécute une commande FFmpeg avec le binaire détecté et renvoie les logs stderr."""
         bin_path = cls.get_ffmpeg_binary()
         if not bin_path:
             raise RuntimeError(
@@ -67,6 +67,13 @@ class FFmpegService:
             actual_cmd[0] = bin_path
 
         process = subprocess.run(actual_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stderr_msg = process.stderr.decode("utf-8", errors="replace")
+        
+        print(f"[FFmpeg] Commande: {' '.join(actual_cmd)}")
+        print(f"[FFmpeg] Code retour: {process.returncode}")
+        print(f"[FFmpeg] Stderr:\n{stderr_msg}")
+
         if process.returncode != 0:
-            error_msg = process.stderr.decode("utf-8", errors="replace")
-            raise RuntimeError(f"FFmpeg error: {error_msg}")
+            raise RuntimeError(f"FFmpeg error ({process.returncode}): {stderr_msg}")
+
+        return stderr_msg
